@@ -15,59 +15,133 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - id: ubuntu-24.04
-            triplet: x64-linux
-            compiler: gcc
-            os: ubuntu-24.04
-            generator: Unix Makefiles
-          - id: ubuntu-22.04
-            triplet: x64-linux
-            compiler: gcc
-            os: ubuntu-22.04
-            generator: Unix Makefiles
           - id: ubuntu-20.04
             triplet: x64-linux
             compiler: gcc
             os: ubuntu-20.04
             generator: Unix Makefiles
+            vcpkg_root:
 
     runs-on: ${{matrix.os}}
 
+    env:
+      VCPKG_ROOT: ${{matrix.vcpkg_root}}
+
     steps:
     - uses: actions/checkout@v4
+
+    - name: Cache the vcpkg archives
+      if: matrix.cache != ''
+      uses: actions/cache@v4
+      with:
+        path: ${{matrix.cache}}
+        key: ${{matrix.id}}-${{hashFiles('vcpkg.json')}}
+        restore-keys: |
+          ${{matrix.id}}-${{hashFiles('vcpkg.json')}}
+          ${{matrix.id}}-
+
+    - name: Configure Visual Studio
+      if: matrix.compiler == 'vs'
+      uses: ilammy/msvc-dev-cmd@v1
+      with:
+        arch: ${{matrix.arch}}
+
+    - name: Install MSYS2
+      if: matrix.compiler == 'mingw'
+      uses: msys2/setup-msys2@v2
+      with:
+        update: true
+        install: mingw-w64-x86_64-ninja
+
+    - name: Put MSYS2_MinGW64 on PATH
+      if: matrix.compiler == 'mingw'
+      run: echo "D:/a/_temp/msys64/mingw64/bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
     - name: Install apt dependencies (Linux)
       if: runner.os == 'Linux'
       run: |
         sudo apt-get update
         sudo apt-get remove needrestart || echo Ignored
-        sudo apt-get install -y build-essential zlib1g-dev libcurl4-openssl-dev libssl-dev cmake pkg-config
+        sudo apt-get install -y libssl-dev zlib1g-dev python3-cryptography
 
-    - name: Configure CMake with static linking where possible
+    - name: Install brew dependencies (macOS)
+      if: runner.os == 'macOS'
       run: |
-        cmake -G "${{matrix.generator}}" \
-          -S ${{github.workspace}} \
-          -B ${{github.workspace}}/build \
-          -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} \
-          -DCMAKE_EXE_LINKER_FLAGS="-static -static-libgcc -static-libstdc++" \
-          -DOPENSSL_USE_STATIC_LIBS=TRUE \
-          -DCURL_USE_STATIC_LIBS=TRUE \
-          -DCMAKE_FIND_LIBRARY_SUFFIXES=".a;.so" \
-          -DCMAKE_EXE_LINKER_FLAGS_INIT="-static" \
-          -DCMAKE_SHARED_LIBRARY_LINK_C_FLAGS="" \
-          -DCMAKE_SHARED_LIBRARY_LINK_CXX_FLAGS="" \
-          -DCMAKE_FIND_LIBRARY_SUFFIXES=".a" \
-          -DCURL_LIBRARY=/usr/lib/x86_64-linux-gnu/libcurl.a \
-          -DOPENSSL_ROOT_DIR=/usr/lib/x86_64-linux-gnu/ \
-          -DOPENSSL_CRYPTO_LIBRARY=/usr/lib/x86_64-linux-gnu/libcrypto.a \
-          -DOPENSSL_SSL_LIBRARY=/usr/lib/x86_64-linux-gnu/libssl.a
+        brew install python@3.8
+
+    - name: Install Xcode (macOS)
+      if: runner.os == 'macOS'
+      uses: maxim-lobanov/setup-xcode@v1
+      with:
+        xcode-version: latest-stable
+
+    - name: Setup the oldest supported version of cmake (macOS)
+      if: runner.os == 'macOS'
+      uses: jwlawson/actions-setup-cmake@v2.0
+      with:
+        cmake-version: '3.17.0'
+
+    - name: Install python3 cryptography module (macOS)
+      if: runner.os == 'macOS'
+      run: |
+        python3.8 -m ensurepip
+        python3.8 -m pip install --upgrade pip
+        python3.8 -m pip install cryptography
+
+    - name: Find the latest version of Python (Windows)
+      if: runner.os == 'Windows'
+      run: |
+        $pythonVersions = Get-ChildItem -Path "C:/hostedtoolcache/windows/Python/" -Directory | Where-Object { $_.Name -match '\d+\.\d+\.\d+' } | Sort-Object { [Version]($_.Name) } -Descending
+        if ($pythonVersions.Count -gt 0) {
+            $latestPythonVersion = $pythonVersions[0].Name
+            $pythonPath = "C:/hostedtoolcache/windows/Python/$latestPythonVersion/x64"
+            Write-Output "Latest Python version found: $latestPythonVersion"
+            Write-Output "Python directory path: $pythonPath"
+            $env:Path = "$pythonPath;" + $env:Path
+            Write-Output "Updated PATH environment variable:"
+            Write-Output $env:Path
+        } else {
+            Write-Error "No Python versions found in C:/hostedtoolcache/windows/Python/"
+            exit 1
+        }
+
+    - name: Install python3 cryptography module (Windows)
+      if: runner.os == 'Windows'
+      run: |
+        python.exe -m ensurepip
+        python.exe -m pip install --upgrade pip
+        python.exe -m pip install cryptography
+
+    - name: Configure CMake
+      run: cmake
+        -G "${{matrix.generator}}"
+        -S ${{github.workspace}}
+        -B ${{github.workspace}}/build
+        -DCMAKE_OSX_ARCHITECTURES=arm64
+        -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}}
+        -DCMAKE_INSTALL_PREFIX=${{github.workspace}}/dist
+        -DVCPKG_TARGET_TRIPLET=${{matrix.triplet}}
 
     - name: Build
-      run: cmake --build ${{github.workspace}}/build --config ${{env.BUILD_TYPE}}
+      run: cmake
+        --build ${{github.workspace}}/build
+        --config ${{env.BUILD_TYPE}}
 
-    - name: List files (Linux)
+    - name: Show python version (macOS)
+      working-directory: ${{github.workspace}}/build
+      if: runner.os == 'macOS'
+      run: |
+        python3.8 --version
+        python3.8 -c "import sys; print(sys.executable)"
+        python3.8 -c "import cryptography; print(f'Python3 cryptography version {cryptography.__version__}')"
+
+    - name: List files (Linux/macOS)
       if: runner.os != 'Windows'
       run: find .. -ls
+
+    - name: List files (Windows)
+      if: runner.os == 'Windows'
+      run: Get-ChildItem -Recurse -Name ..
 
     - name: Test
       working-directory: ${{github.workspace}}/build
