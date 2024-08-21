@@ -37,18 +37,25 @@ jobs:
         sudo apt-get remove needrestart || echo Ignored
         sudo apt-get install -y build-essential libssl-dev zlib1g-dev cmake pkg-config
 
+    - name: Ensure Static Libraries
+      run: |
+        # Install static zlib
+        sudo apt-get install -y zlib1g-dev
+
     - name: Configure CMake for Static Linking
       run: |
         cmake -G "${{matrix.generator}}" \
           -S ${{github.workspace}} \
           -B ${{github.workspace}}/build \
           -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} \
+          -DCMAKE_INSTALL_PREFIX=${{github.workspace}}/dist \
           -DCMAKE_EXE_LINKER_FLAGS="-static -static-libgcc -static-libstdc++" \
           -DOPENSSL_USE_STATIC_LIBS=TRUE \
           -DOPENSSL_CRYPTO_LIBRARY=/usr/lib/x86_64-linux-gnu/libcrypto.a \
           -DOPENSSL_INCLUDE_DIR=/usr/include/openssl \
           -DOPENSSL_SSL_LIBRARY=/usr/lib/x86_64-linux-gnu/libssl.a \
-          -DCMAKE_INSTALL_PREFIX=${{github.workspace}}/dist
+          -DZLIB_LIBRARY=/usr/lib/x86_64-linux-gnu/libz.a \
+          -DCMAKE_FIND_LIBRARY_SUFFIXES=".a"
 
     - name: Build
       run: cmake --build ${{github.workspace}}/build --config ${{env.BUILD_TYPE}}
@@ -61,17 +68,6 @@ jobs:
       working-directory: ${{github.workspace}}/build
       run: ctest -C ${{env.BUILD_TYPE}}
 
-    - name: Upload the errors
-      uses: actions/upload-artifact@v4
-      if: failure()
-      with:
-        name: errors-${{matrix.id}}
-        path: |
-          ${{github.workspace}}/build/Testing/Temporary/LastTest.log
-          ${{github.workspace}}/build/Testing/conf/makecerts.log
-          ${{github.workspace}}/build/Testing/logs/server.log
-          ${{github.workspace}}/build/Testing/logs/port.log
-
     - name: Install
       run: cmake --install ${{github.workspace}}/build
 
@@ -79,5 +75,5 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: ${{env.version}}-${{matrix.id}}
-        path: /usr/local/bin/osslsigncode
-
+        path: ${{github.workspace}}/dist
+        if-no-files-found: warn
