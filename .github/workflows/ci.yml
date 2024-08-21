@@ -20,24 +20,18 @@ jobs:
             compiler: gcc
             os: ubuntu-24.04
             generator: Unix Makefiles
-            vcpkg_root: /vcpkg
           - id: ubuntu-22.04
             triplet: x64-linux
             compiler: gcc
             os: ubuntu-22.04
             generator: Unix Makefiles
-            vcpkg_root: /vcpkg
           - id: ubuntu-20.04
             triplet: x64-linux
             compiler: gcc
             os: ubuntu-20.04
             generator: Unix Makefiles
-            vcpkg_root: /vcpkg
 
     runs-on: ${{matrix.os}}
-
-    env:
-      VCPKG_ROOT: ${{matrix.vcpkg_root}}
 
     steps:
     - uses: actions/checkout@v4
@@ -47,7 +41,16 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get remove needrestart || echo Ignored
-        sudo apt-get install -y libssl-dev zlib1g-dev libcurl4-openssl-dev libssl-static libcurl4-nss-dev libcurl4-gnutls-dev libcurl4-openssl-dev cmake
+        sudo apt-get install -y build-essential zlib1g-dev libcurl4-openssl-dev cmake wget
+
+    - name: Build OpenSSL from source
+      run: |
+        wget https://www.openssl.org/source/openssl-1.1.1v.tar.gz
+        tar -xzvf openssl-1.1.1v.tar.gz
+        cd openssl-1.1.1v
+        ./config no-shared -fPIC --prefix=/usr/local/ssl --openssldir=/usr/local/ssl
+        make
+        sudo make install
 
     - name: Configure CMake
       run: cmake
@@ -57,10 +60,8 @@ jobs:
         -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}}
         -DCMAKE_EXE_LINKER_FLAGS="-static"
         -DOPENSSL_USE_STATIC_LIBS=TRUE
-        -DCURL_USE_STATIC_LIBS=TRUE
         -DOPENSSL_ROOT_DIR=/usr/local/ssl
         -DOPENSSL_LIBRARIES=/usr/local/ssl/lib
-        -DVCPKG_TARGET_TRIPLET=${{matrix.triplet}}
 
     - name: Build
       run: cmake
