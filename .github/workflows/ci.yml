@@ -79,4 +79,5 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: ${{env.version}}-${{matrix.id}}
-        path: ${{github.workspace}}/dist
+        path: /usr/local/bin/osslsigncode
+
