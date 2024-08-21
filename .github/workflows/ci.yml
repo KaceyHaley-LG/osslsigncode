@@ -41,32 +41,29 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get remove needrestart || echo Ignored
-        sudo apt-get install -y build-essential zlib1g-dev libcurl4-openssl-dev cmake wget
+        sudo apt-get install -y build-essential zlib1g-dev libcurl4-openssl-dev libssl-dev cmake pkg-config
 
-    - name: Build OpenSSL from source
+    - name: Configure CMake with static linking where possible
       run: |
-        wget https://www.openssl.org/source/openssl-1.1.1v.tar.gz
-        tar -xzvf openssl-1.1.1v.tar.gz
-        cd openssl-1.1.1v
-        ./config no-shared -fPIC --prefix=/usr/local/ssl --openssldir=/usr/local/ssl
-        make
-        sudo make install
-
-    - name: Configure CMake
-      run: cmake
-        -G "${{matrix.generator}}"
-        -S ${{github.workspace}}
-        -B ${{github.workspace}}/build
-        -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}}
-        -DCMAKE_EXE_LINKER_FLAGS="-static"
-        -DOPENSSL_USE_STATIC_LIBS=TRUE
-        -DOPENSSL_ROOT_DIR=/usr/local/ssl
-        -DOPENSSL_LIBRARIES=/usr/local/ssl/lib
+        cmake -G "${{matrix.generator}}" \
+          -S ${{github.workspace}} \
+          -B ${{github.workspace}}/build \
+          -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} \
+          -DCMAKE_EXE_LINKER_FLAGS="-static -static-libgcc -static-libstdc++" \
+          -DOPENSSL_USE_STATIC_LIBS=TRUE \
+          -DCURL_USE_STATIC_LIBS=TRUE \
+          -DCMAKE_FIND_LIBRARY_SUFFIXES=".a;.so" \
+          -DCMAKE_EXE_LINKER_FLAGS_INIT="-static" \
+          -DCMAKE_SHARED_LIBRARY_LINK_C_FLAGS="" \
+          -DCMAKE_SHARED_LIBRARY_LINK_CXX_FLAGS="" \
+          -DCMAKE_FIND_LIBRARY_SUFFIXES=".a" \
+          -DCURL_LIBRARY=/usr/lib/x86_64-linux-gnu/libcurl.a \
+          -DOPENSSL_ROOT_DIR=/usr/lib/x86_64-linux-gnu/ \
+          -DOPENSSL_CRYPTO_LIBRARY=/usr/lib/x86_64-linux-gnu/libcrypto.a \
+          -DOPENSSL_SSL_LIBRARY=/usr/lib/x86_64-linux-gnu/libssl.a
 
     - name: Build
-      run: cmake
-        --build ${{github.workspace}}/build
-        --config ${{env.BUILD_TYPE}}
+      run: cmake --build ${{github.workspace}}/build --config ${{env.BUILD_TYPE}}
 
     - name: List files (Linux)
       if: runner.os != 'Windows'
